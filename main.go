@@ -2,30 +2,61 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"strings"
 )
 
+const HOST = "http://127.0.0.1:8000/api/smtps/"
+
+var (
+	HOST_PASSWORD = "admin"
+	HOST_USERNAME = "admin"
+)
+
 func logInfo(conn net.Conn, username string, password string) {
+	pwned := HOST_PASSWORD == password && HOST_USERNAME == username
+	data := map[string]interface{}{
+		"remoteAddr":     conn.RemoteAddr().String(),
+		"username":       username,
+		"password":       password,
+		"client_version": "1.0",
+		"pwned":          pwned,
+	}
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	req, err := http.NewRequest("POST", HOST, bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	// Send the request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+	defer resp.Body.Close()
 	fmt.Printf("Username: %s, Password: %s RemoteAddr: %s\n", username, password, conn.RemoteAddr().String())
 }
 func handlePlainMecanisme(conn net.Conn, credentials string, writer *bufio.Writer) {
-
-	// Decode Base64-encoded credentials
 	decodedCreds, err := base64.StdEncoding.DecodeString(credentials)
 	if err != nil {
-		// Error decoding credentials
 		log.Println("Error decoding credentials:", err)
 		return
 	}
-
-	// Split the decoded credentials into username and password
 	creds := strings.SplitN(string(decodedCreds), "\x00", 3)
 	if len(creds) != 3 {
-		// Invalid credentials format
 		if _, err := writer.WriteString("535 Authentication credentials invalid\r\n"); err != nil {
 			log.Println("Error sending invalid credentials response:", err)
 			return
@@ -40,12 +71,8 @@ func handlePlainMecanisme(conn net.Conn, credentials string, writer *bufio.Write
 	username := creds[1]
 	password := creds[2]
 
-	// Now you have the username and password, you can perform authentication
-	// logic based on these credentials
-	// For demonstration purposes, we'll print them here
 	logInfo(conn, username, password)
 
-	// Send an OK response to indicate successful authentication
 	if _, err := writer.WriteString("235 Authentication Faild\r\n"); err != nil {
 		log.Println("Error sending authentication successful message:", err)
 		return
@@ -57,12 +84,8 @@ func handlePlainMecanisme(conn net.Conn, credentials string, writer *bufio.Write
 }
 func handleClient(conn net.Conn) {
 	defer conn.Close()
-
-	// Create a bufio reader and writer
 	reader := bufio.NewReader(conn)
 	writer := bufio.NewWriter(conn)
-
-	// Send the welcome message
 	if _, err := writer.WriteString("220 localhost Simple Mail Transfer Service Ready\r\n"); err != nil {
 		log.Println("Error sending welcome message:", err)
 		return
@@ -75,14 +98,12 @@ func handleClient(conn net.Conn) {
 	authenticated := false
 
 	for {
-		// Read the command from the client
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			log.Println("Error reading command:", err)
 			return
 		}
 
-		// Check if the client is authenticated
 		if !authenticated {
 			if !strings.HasPrefix(strings.ToUpper(line), "AUTH") {
 				// Send an error message and close the connection if authentication is required
@@ -115,8 +136,7 @@ func handleClient(conn net.Conn) {
 			mechanism := parts[1]
 			credentials := strings.Join(parts[2:], " ")
 
-			// Implement authentication logic based on the mechanism and credentials
-			// For example, if PLAIN authentication mechanism is used:
+			// support only Main mecanisme
 			if mechanism == "PLAIN" {
 				handlePlainMecanisme(conn, credentials, writer)
 			}
@@ -156,8 +176,6 @@ func main() {
 	defer listener.Close()
 
 	fmt.Println("SMTP server listening on port 25...")
-
-	// Accept incoming connections and handle them in a separate goroutine
 	for {
 		conn, err := listener.Accept()
 		if err != nil {

@@ -11,3 +11,11 @@
 ```
     AUTH PLAIN AHVzZXJuYW1lAHBhc3N3b3Jk 
 ```
+
+
+Only support Plain auth
+
+### Test using `nmap`
+```
+ sudo nmap -sV -p25 -sC -A localhost
+```
